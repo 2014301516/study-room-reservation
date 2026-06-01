@@ -6,5 +6,6 @@ import java.util.List;
 
 public interface ViolationRepository extends JpaRepository<Violation, Long> {
     long countByUserIdAndStatus(Long userId, String status);
+    long countByStatus(String status);
     List<Violation> findByUserIdOrderByCreatedAtDesc(Long userId);
 }

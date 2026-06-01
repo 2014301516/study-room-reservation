@@ -2,6 +2,7 @@ package com.studyroom.service;
 
 import com.studyroom.entity.*;
 import com.studyroom.repository.*;
+import com.studyroom.websocket.SeatBroadcastService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.PageRequest;
@@ -21,6 +22,7 @@ public class AdminService {
     private final ViolationRepository violationRepository;
     private final NoticeRepository noticeRepository;
     private final AreaRepository areaRepository;
+    private final SeatBroadcastService broadcastService;
 
     @Value("${study-room.max-violations:3}")
     private int maxViolations;
@@ -81,9 +83,7 @@ public class AdminService {
 
         // 违规
         long totalViolations = violationRepository.count();
-        long activeViolations = violationRepository.countByUserIdAndStatus(0L, "active"); // FIXME: need proper query for all active
-        // Use all violations count as approximation
-        activeViolations = violationRepository.count(); // simplified
+        long activeViolations = violationRepository.countByStatus("active");
 
         Map<String, Object> todayStats = new LinkedHashMap<>();
         todayStats.put("total_reservations", totalReservations);
@@ -133,7 +133,14 @@ public class AdminService {
         if (body.containsKey("has_outlet")) seat.setHasOutlet(Integer.valueOf(body.get("has_outlet").toString()));
         if (body.containsKey("has_lamp")) seat.setHasLamp(Integer.valueOf(body.get("has_lamp").toString()));
         if (body.containsKey("is_window")) seat.setIsWindow(Integer.valueOf(body.get("is_window").toString()));
-        if (body.containsKey("current_status")) seat.setCurrentStatus(body.get("current_status").toString());
+        if (body.containsKey("current_status")) {
+            String oldStatus = seat.getCurrentStatus();
+            String newStatus = body.get("current_status").toString();
+            seat.setCurrentStatus(newStatus);
+            Seat saved = seatRepository.save(seat);
+            broadcastService.broadcastSeatChange(saved.getAreaId(), saved.getId(), saved.getSeatNumber(), oldStatus, newStatus);
+            return saved;
+        }
         return seatRepository.save(seat);
     }
 
@@ -143,13 +150,11 @@ public class AdminService {
 
     // ====== 预约管理 ======
     public Map<String, Object> getReservations(String status, LocalDate date, int page, int pageSize) {
-        // simplified: fetch all and filter manually
-        List<Reservation> all = reservationRepository.findAll();
-        // basic filter
+        org.springframework.data.domain.Page<Reservation> pageResult =
+                reservationRepository.findByStatusAndDate(status, date, PageRequest.of(page - 1, pageSize));
+
         List<Map<String, Object>> list = new ArrayList<>();
-        for (Reservation r : all) {
-            if (status != null && !r.getStatus().equals(status)) continue;
-            if (date != null && !r.getDate().equals(date)) continue;
+        for (Reservation r : pageResult.getContent()) {
             Seat seat = seatRepository.findById(r.getSeatId()).orElse(null);
             User user = userRepository.findById(r.getUserId()).orElse(null);
             Map<String, Object> m = new LinkedHashMap<>();
@@ -171,7 +176,7 @@ public class AdminService {
         }
         Map<String, Object> data = new LinkedHashMap<>();
         data.put("list", list);
-        data.put("total", list.size());
+        data.put("total", pageResult.getTotalElements());
         data.put("page", page);
         data.put("pageSize", pageSize);
         return data;
@@ -179,10 +184,15 @@ public class AdminService {
 
     // ====== 用户管理 ======
     public Map<String, Object> getUsers(String role, int page, int pageSize) {
-        List<User> all = userRepository.findAll();
+        org.springframework.data.domain.Page<User> pageResult;
+        if (role != null && !role.isEmpty()) {
+            pageResult = userRepository.findByRole(role, PageRequest.of(page - 1, pageSize));
+        } else {
+            pageResult = userRepository.findAllByOrderByCreatedAtDesc(PageRequest.of(page - 1, pageSize));
+        }
+
         List<Map<String, Object>> list = new ArrayList<>();
-        for (User u : all) {
-            if (role != null && !u.getRole().equals(role)) continue;
+        for (User u : pageResult.getContent()) {
             Map<String, Object> m = new LinkedHashMap<>();
             m.put("id", u.getId());
             m.put("username", u.getUsername());
@@ -197,7 +207,7 @@ public class AdminService {
         }
         Map<String, Object> data = new LinkedHashMap<>();
         data.put("list", list);
-        data.put("total", list.size());
+        data.put("total", pageResult.getTotalElements());
         data.put("page", page);
         data.put("pageSize", pageSize);
         return data;

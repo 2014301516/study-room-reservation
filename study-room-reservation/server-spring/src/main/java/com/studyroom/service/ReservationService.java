@@ -3,6 +3,7 @@ package com.studyroom.service;
 import com.studyroom.entity.*;
 import com.studyroom.repository.*;
 import com.studyroom.util.QRCodeUtil;
+import com.studyroom.websocket.SeatBroadcastService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.PageRequest;
@@ -22,6 +23,7 @@ public class ReservationService {
     private final UserRepository userRepository;
     private final CheckinRepository checkinRepository;
     private final ViolationRepository violationRepository;
+    private final SeatBroadcastService broadcastService;
 
     @Value("${study-room.max-violations:3}")
     private int maxViolations;
@@ -122,9 +124,11 @@ public class ReservationService {
         reservationRepository.save(r);
 
         // 座位标记为已预约
-        if ("available".equals(seat.getCurrentStatus())) {
+        String oldStatus = seat.getCurrentStatus();
+        if ("available".equals(oldStatus)) {
             seat.setCurrentStatus("reserved");
             seatRepository.save(seat);
+            broadcastService.broadcastSeatChange(seat.getAreaId(), seatId, seat.getSeatNumber(), oldStatus, "reserved");
         }
 
         // 生成QR
@@ -153,8 +157,10 @@ public class ReservationService {
         reservationRepository.save(r);
 
         seatRepository.findById(r.getSeatId()).ifPresent(seat -> {
+            String oldStatus = seat.getCurrentStatus();
             seat.setCurrentStatus("available");
             seatRepository.save(seat);
+            broadcastService.broadcastSeatChange(seat.getAreaId(), seat.getId(), seat.getSeatNumber(), oldStatus, "available");
         });
         return Map.of("code", 200, "message", "已取消预约");
     }
@@ -170,8 +176,10 @@ public class ReservationService {
         reservationRepository.save(r);
 
         seatRepository.findById(r.getSeatId()).ifPresent(seat -> {
+            String oldStatus = seat.getCurrentStatus();
             seat.setCurrentStatus("occupied");
             seatRepository.save(seat);
+            broadcastService.broadcastSeatChange(seat.getAreaId(), seat.getId(), seat.getSeatNumber(), oldStatus, "occupied");
         });
 
         Checkin c = new Checkin();
@@ -195,8 +203,10 @@ public class ReservationService {
         reservationRepository.save(r);
 
         seatRepository.findById(r.getSeatId()).ifPresent(seat -> {
+            String oldStatus = seat.getCurrentStatus();
             seat.setCurrentStatus("temp_leave");
             seatRepository.save(seat);
+            broadcastService.broadcastSeatChange(seat.getAreaId(), seat.getId(), seat.getSeatNumber(), oldStatus, "temp_leave");
         });
         return Map.of("code", 200, "message", "已暂离，座位为您保留15分钟");
     }
@@ -212,8 +222,10 @@ public class ReservationService {
         reservationRepository.save(r);
 
         seatRepository.findById(r.getSeatId()).ifPresent(seat -> {
+            String oldStatus = seat.getCurrentStatus();
             seat.setCurrentStatus("available");
             seatRepository.save(seat);
+            broadcastService.broadcastSeatChange(seat.getAreaId(), seat.getId(), seat.getSeatNumber(), oldStatus, "available");
         });
         return Map.of("code", 200, "message", "签退成功，感谢使用");
     }

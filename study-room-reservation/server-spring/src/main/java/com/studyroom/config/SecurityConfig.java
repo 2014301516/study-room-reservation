@@ -35,6 +35,7 @@ public class SecurityConfig {
                 .requestMatchers("/api/auth/login", "/api/auth/register").permitAll()
                 .requestMatchers("/api/health").permitAll()
                 .requestMatchers("/socket.io/**").permitAll()
+                .requestMatchers("/ws/**").permitAll()
                 // 所有其他接口需要登录（管理员权限在 Controller 中校验）
                 .anyRequest().authenticated()
             )
