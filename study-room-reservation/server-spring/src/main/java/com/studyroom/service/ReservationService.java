@@ -1,12 +1,13 @@
 package com.studyroom.service;
 
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.studyroom.entity.*;
-import com.studyroom.repository.*;
+import com.studyroom.mapper.*;
 import com.studyroom.util.QRCodeUtil;
 import com.studyroom.websocket.SeatBroadcastService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -18,11 +19,12 @@ import java.util.*;
 @RequiredArgsConstructor
 public class ReservationService {
 
-    private final ReservationRepository reservationRepository;
-    private final SeatRepository seatRepository;
-    private final UserRepository userRepository;
-    private final CheckinRepository checkinRepository;
-    private final ViolationRepository violationRepository;
+    private final ReservationMapper reservationMapper;
+    private final SeatMapper seatMapper;
+    private final AreaMapper areaMapper;
+    private final UserMapper userMapper;
+    private final CheckinMapper checkinMapper;
+    private final ViolationMapper violationMapper;
     private final SeatBroadcastService broadcastService;
 
     @Value("${study-room.max-violations:3}")
@@ -32,31 +34,31 @@ public class ReservationService {
     private int banDays;
 
     public Map<String, Object> getMyReservations(Long userId, String status, int page, int pageSize) {
-        List<String> statuses = (status != null && !status.isEmpty())
-                ? Arrays.asList(status.split(","))
-                : null;
+        LambdaQueryWrapper<Reservation> wrapper = new LambdaQueryWrapper<Reservation>()
+                .eq(Reservation::getUserId, userId);
 
-        org.springframework.data.domain.Page<Reservation> pageResult;
-        if (statuses != null && !statuses.isEmpty()) {
-            pageResult = reservationRepository.findByUserIdAndStatusInOrderByDateDescStartTimeDesc(
-                    userId, statuses, PageRequest.of(page - 1, pageSize));
-        } else {
-            pageResult = reservationRepository.findByUserIdOrderByDateDescStartTimeDesc(
-                    userId, PageRequest.of(page - 1, pageSize));
+        if (status != null && !status.isEmpty()) {
+            wrapper.in(Reservation::getStatus, Arrays.asList(status.split(",")));
         }
+        wrapper.orderByDesc(Reservation::getDate).orderByDesc(Reservation::getStartTime);
+
+        Page<Reservation> pageResult = reservationMapper.selectPage(new Page<>(page, pageSize), wrapper);
 
         // 加载关联数据
         List<Map<String, Object>> list = new ArrayList<>();
-        for (Reservation r : pageResult.getContent()) {
-            Seat seat = seatRepository.findById(r.getSeatId()).orElse(null);
-            Area area = seat != null ? seat.getArea() : null;
+        for (Reservation r : pageResult.getRecords()) {
+            Seat seat = seatMapper.selectById(r.getSeatId());
+            Area area = null;
+            if (seat != null && seat.getAreaId() != null) {
+                area = getAreaForSeat(seat.getAreaId());
+            }
             Map<String, Object> m = buildReservationMap(r, seat, area);
             list.add(m);
         }
 
         Map<String, Object> data = new LinkedHashMap<>();
         data.put("list", list);
-        data.put("total", pageResult.getTotalElements());
+        data.put("total", pageResult.getTotal());
         data.put("page", page);
         data.put("pageSize", pageSize);
         return data;
@@ -71,7 +73,7 @@ public class ReservationService {
         for (int h = 8; h < 22; h++) {
             String start = String.format("%02d:00", h);
             String end = String.format("%02d:00", h + 1);
-            List<Reservation> conflicts = reservationRepository.findConflicts(seatId, date, end, start);
+            List<Reservation> conflicts = reservationMapper.findConflicts(seatId, date, end, start);
             boolean available = conflicts.isEmpty()
                     && (!isToday || start.compareTo(nowTime) >= 0);
 
@@ -92,28 +94,26 @@ public class ReservationService {
         String endTime = body.get("end_time").toString();
 
         // 检查违规处罚
-        long activeViolations = violationRepository.countByUserIdAndStatus(userId, "active");
+        long activeViolations = violationMapper.selectCount(
+                new LambdaQueryWrapper<Violation>().eq(Violation::getUserId, userId).eq(Violation::getStatus, "active"));
         if (activeViolations >= maxViolations) {
             return Map.of("code", 403, "message", "您当前处于违规处罚期，无法预约");
         }
 
         // 检查座位
-        Seat seat = seatRepository.findById(seatId).orElse(null);
+        Seat seat = seatMapper.selectById(seatId);
         if (seat == null) return Map.of("code", 404, "message", "座位不存在");
         if ("maintenance".equals(seat.getCurrentStatus())) {
             return Map.of("code", 400, "message", "该座位正在维护中");
         }
 
         // 检查冲突
-        List<Reservation> conflicts = reservationRepository.findConflicts(seatId, date, endTime, startTime);
+        List<Reservation> conflicts = reservationMapper.findConflicts(seatId, date, endTime, startTime);
         if (!conflicts.isEmpty()) {
             return Map.of("code", 400, "message", "该时间段已被他人预约");
         }
 
-        // 检查自己的冲突
-        List<Reservation> myConflicts = reservationRepository.findConflicts(seatId, date, endTime, startTime);
-        // Actually check by userId in the query... for now, simple approach
-        // Create reservation
+        // 创建预约
         Reservation r = new Reservation();
         r.setUserId(userId);
         r.setSeatId(seatId);
@@ -121,13 +121,13 @@ public class ReservationService {
         r.setStartTime(startTime);
         r.setEndTime(endTime);
         r.setQrcodeToken(UUID.randomUUID().toString());
-        reservationRepository.save(r);
+        reservationMapper.insert(r);
 
         // 座位标记为已预约
         String oldStatus = seat.getCurrentStatus();
         if ("available".equals(oldStatus)) {
             seat.setCurrentStatus("reserved");
-            seatRepository.save(seat);
+            seatMapper.updateById(seat);
             broadcastService.broadcastSeatChange(seat.getAreaId(), seatId, seat.getSeatNumber(), oldStatus, "reserved");
         }
 
@@ -136,7 +136,8 @@ public class ReservationService {
                 "\",\"seat\":\"" + seat.getSeatNumber() + "\",\"date\":\"" + date + "\",\"time\":\"" + startTime + "-" + endTime + "\"}";
         String qrDataUrl = QRCodeUtil.generateDataUrl(qrContent);
 
-        Map<String, Object> data = buildReservationMap(r, seat, seat.getArea());
+        Area area = seat.getAreaId() != null ? getAreaForSeat(seat.getAreaId()) : null;
+        Map<String, Object> data = buildReservationMap(r, seat, area);
         data.put("qrcode_data_url", qrDataUrl);
 
         Map<String, Object> result = new LinkedHashMap<>();
@@ -148,93 +149,102 @@ public class ReservationService {
 
     @Transactional
     public Map<String, Object> cancelReservation(Long id, Long userId) {
-        Reservation r = reservationRepository.findByIdAndUserId(id, userId).orElse(null);
+        Reservation r = reservationMapper.selectOne(
+                new LambdaQueryWrapper<Reservation>().eq(Reservation::getId, id).eq(Reservation::getUserId, userId));
         if (r == null) return Map.of("code", 404, "message", "预约不存在");
         if (!"reserved".equals(r.getStatus())) {
             return Map.of("code", 400, "message", "当前状态不可取消");
         }
         r.setStatus("cancelled");
-        reservationRepository.save(r);
+        reservationMapper.updateById(r);
 
-        seatRepository.findById(r.getSeatId()).ifPresent(seat -> {
+        Seat seat = seatMapper.selectById(r.getSeatId());
+        if (seat != null) {
             String oldStatus = seat.getCurrentStatus();
             seat.setCurrentStatus("available");
-            seatRepository.save(seat);
+            seatMapper.updateById(seat);
             broadcastService.broadcastSeatChange(seat.getAreaId(), seat.getId(), seat.getSeatNumber(), oldStatus, "available");
-        });
+        }
         return Map.of("code", 200, "message", "已取消预约");
     }
 
     @Transactional
     public Map<String, Object> checkin(Long id, Long userId) {
-        Reservation r = reservationRepository.findByIdAndUserId(id, userId).orElse(null);
+        Reservation r = reservationMapper.selectOne(
+                new LambdaQueryWrapper<Reservation>().eq(Reservation::getId, id).eq(Reservation::getUserId, userId));
         if (r == null) return Map.of("code", 404, "message", "预约不存在");
         if (!"reserved".equals(r.getStatus())) {
             return Map.of("code", 400, "message", "当前状态不可签到");
         }
         r.setStatus("checked_in");
-        reservationRepository.save(r);
+        reservationMapper.updateById(r);
 
-        seatRepository.findById(r.getSeatId()).ifPresent(seat -> {
+        Seat seat = seatMapper.selectById(r.getSeatId());
+        if (seat != null) {
             String oldStatus = seat.getCurrentStatus();
             seat.setCurrentStatus("occupied");
-            seatRepository.save(seat);
+            seatMapper.updateById(seat);
             broadcastService.broadcastSeatChange(seat.getAreaId(), seat.getId(), seat.getSeatNumber(), oldStatus, "occupied");
-        });
+        }
 
         Checkin c = new Checkin();
         c.setReservationId(r.getId());
         c.setUserId(userId);
         c.setSeatId(r.getSeatId());
         c.setCheckinTime(LocalDateTime.now());
-        checkinRepository.save(c);
+        checkinMapper.insert(c);
 
         return Map.of("code", 200, "message", "签到成功，请就座");
     }
 
     @Transactional
     public Map<String, Object> tempLeave(Long id, Long userId) {
-        Reservation r = reservationRepository.findByIdAndUserId(id, userId).orElse(null);
+        Reservation r = reservationMapper.selectOne(
+                new LambdaQueryWrapper<Reservation>().eq(Reservation::getId, id).eq(Reservation::getUserId, userId));
         if (r == null) return Map.of("code", 404, "message", "预约不存在");
         if (!"checked_in".equals(r.getStatus())) {
             return Map.of("code", 400, "message", "仅在已签到状态可暂离");
         }
         r.setStatus("temp_leave");
-        reservationRepository.save(r);
+        reservationMapper.updateById(r);
 
-        seatRepository.findById(r.getSeatId()).ifPresent(seat -> {
+        Seat seat = seatMapper.selectById(r.getSeatId());
+        if (seat != null) {
             String oldStatus = seat.getCurrentStatus();
             seat.setCurrentStatus("temp_leave");
-            seatRepository.save(seat);
+            seatMapper.updateById(seat);
             broadcastService.broadcastSeatChange(seat.getAreaId(), seat.getId(), seat.getSeatNumber(), oldStatus, "temp_leave");
-        });
+        }
         return Map.of("code", 200, "message", "已暂离，座位为您保留15分钟");
     }
 
     @Transactional
     public Map<String, Object> checkout(Long id, Long userId) {
-        Reservation r = reservationRepository.findByIdAndUserId(id, userId).orElse(null);
+        Reservation r = reservationMapper.selectOne(
+                new LambdaQueryWrapper<Reservation>().eq(Reservation::getId, id).eq(Reservation::getUserId, userId));
         if (r == null) return Map.of("code", 404, "message", "预约不存在");
         if (!List.of("checked_in", "temp_leave").contains(r.getStatus())) {
             return Map.of("code", 400, "message", "当前状态不可签退");
         }
         r.setStatus("completed");
-        reservationRepository.save(r);
+        reservationMapper.updateById(r);
 
-        seatRepository.findById(r.getSeatId()).ifPresent(seat -> {
+        Seat seat = seatMapper.selectById(r.getSeatId());
+        if (seat != null) {
             String oldStatus = seat.getCurrentStatus();
             seat.setCurrentStatus("available");
-            seatRepository.save(seat);
+            seatMapper.updateById(seat);
             broadcastService.broadcastSeatChange(seat.getAreaId(), seat.getId(), seat.getSeatNumber(), oldStatus, "available");
-        });
+        }
         return Map.of("code", 200, "message", "签退成功，感谢使用");
     }
 
     public Map<String, Object> getQRCode(Long id, Long userId) {
-        Reservation r = reservationRepository.findByIdAndUserId(id, userId).orElse(null);
+        Reservation r = reservationMapper.selectOne(
+                new LambdaQueryWrapper<Reservation>().eq(Reservation::getId, id).eq(Reservation::getUserId, userId));
         if (r == null) return Map.of("code", 404, "message", "预约不存在");
 
-        Seat seat = seatRepository.findById(r.getSeatId()).orElse(null);
+        Seat seat = seatMapper.selectById(r.getSeatId());
         String qrContent = "{\"reservation_id\":" + r.getId() + ",\"token\":\"" + r.getQrcodeToken() +
                 "\",\"seat\":\"" + (seat != null ? seat.getSeatNumber() : "") + "\",\"date\":\"" + r.getDate() +
                 "\",\"time\":\"" + r.getStartTime() + "-" + r.getEndTime() + "\"}";
@@ -244,6 +254,8 @@ public class ReservationService {
         data.put("qrcode_data_url", QRCodeUtil.generateDataUrl(qrContent));
         return Map.of("code", 200, "data", data);
     }
+
+    // ====== 内部辅助方法 ======
 
     private Map<String, Object> buildReservationMap(Reservation r, Seat seat, Area area) {
         Map<String, Object> m = new LinkedHashMap<>();
@@ -267,5 +279,10 @@ public class ReservationService {
             m.put("floor", area.getFloor());
         }
         return m;
+    }
+
+    private Area getAreaForSeat(Long areaId) {
+        if (areaId == null) return null;
+        return areaMapper.selectById(areaId);
     }
 }

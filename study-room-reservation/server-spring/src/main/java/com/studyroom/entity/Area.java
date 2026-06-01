@@ -1,14 +1,11 @@
 package com.studyroom.entity;
 
-import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
-import jakarta.persistence.*;
+import com.baomidou.mybatisplus.annotation.*;
 import java.time.LocalDateTime;
 
-@Entity
-@Table(name = "areas")
-@JsonIgnoreProperties({"hibernateLazyInitializer", "handler"})
+@TableName("areas")
 public class Area {
-    @Id @GeneratedValue(strategy = GenerationType.IDENTITY)
+    @TableId(type = IdType.AUTO)
     private Long id;
     private String name;
     private String building;
@@ -16,10 +13,9 @@ public class Area {
     private String description;
     private Integer sortOrder = 0;
     private String status = "active";
-    private LocalDateTime createdAt;
 
-    @PrePersist
-    protected void onCreate() { createdAt = LocalDateTime.now(); }
+    @TableField(fill = FieldFill.INSERT)
+    private LocalDateTime createdAt;
 
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }

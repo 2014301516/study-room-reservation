@@ -1,23 +1,13 @@
 package com.studyroom.entity;
 
-import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
-import jakarta.persistence.*;
+import com.baomidou.mybatisplus.annotation.*;
 import java.time.LocalDateTime;
 
-@Entity
-@Table(name = "seats")
-@JsonIgnoreProperties({"hibernateLazyInitializer", "handler"})
+@TableName("seats")
 public class Seat {
-    @Id @GeneratedValue(strategy = GenerationType.IDENTITY)
+    @TableId(type = IdType.AUTO)
     private Long id;
-
-    @Column(name = "area_id")
     private Long areaId;
-
-    @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "area_id", insertable = false, updatable = false)
-    private Area area;
-
     private String seatNumber;
     private Integer rowNum;
     private Integer colNum;
@@ -25,17 +15,23 @@ public class Seat {
     private Integer hasLamp = 0;
     private Integer isWindow = 0;
     private String currentStatus = "available";
+
+    @TableField(fill = FieldFill.INSERT)
     private LocalDateTime createdAt;
+
+    @TableField(fill = FieldFill.INSERT_UPDATE)
     private LocalDateTime updatedAt;
 
-    @PrePersist protected void onCreate() { createdAt = LocalDateTime.now(); updatedAt = LocalDateTime.now(); }
-    @PreUpdate protected void onUpdate() { updatedAt = LocalDateTime.now(); }
+    // 关联对象（非数据库字段，Service 层手动填充）
+    @TableField(exist = false)
+    private Area area;
 
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }
     public Long getAreaId() { return areaId; }
     public void setAreaId(Long areaId) { this.areaId = areaId; }
     public Area getArea() { return area; }
+    public void setArea(Area area) { this.area = area; }
     public String getSeatNumber() { return seatNumber; }
     public void setSeatNumber(String seatNumber) { this.seatNumber = seatNumber; }
     public Integer getRowNum() { return rowNum; }
@@ -51,5 +47,7 @@ public class Seat {
     public String getCurrentStatus() { return currentStatus; }
     public void setCurrentStatus(String currentStatus) { this.currentStatus = currentStatus; }
     public LocalDateTime getCreatedAt() { return createdAt; }
+    public void setCreatedAt(LocalDateTime createdAt) { this.createdAt = createdAt; }
     public LocalDateTime getUpdatedAt() { return updatedAt; }
+    public void setUpdatedAt(LocalDateTime updatedAt) { this.updatedAt = updatedAt; }
 }

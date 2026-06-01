@@ -1,18 +1,20 @@
 package com.studyroom.service;
 
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.studyroom.entity.User;
-import com.studyroom.repository.UserRepository;
+import com.studyroom.mapper.UserMapper;
 import com.studyroom.util.JwtUtil;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Service;
+
 import java.util.*;
 
 @Service
 @RequiredArgsConstructor
 public class AuthService {
 
-    private final UserRepository userRepository;
+    private final UserMapper userMapper;
     private final JwtUtil jwtUtil;
     private final BCryptPasswordEncoder encoder = new BCryptPasswordEncoder();
 
@@ -25,7 +27,8 @@ public class AuthService {
         if (username == null || password == null || realName == null || studentId == null) {
             return Map.of("code", 400, "message", "请填写必填字段");
         }
-        if (userRepository.existsByUsername(username) || userRepository.existsByStudentId(studentId)) {
+        if (userMapper.selectCount(new LambdaQueryWrapper<User>().eq(User::getUsername, username)) > 0
+                || userMapper.selectCount(new LambdaQueryWrapper<User>().eq(User::getStudentId, studentId)) > 0) {
             return Map.of("code", 400, "message", "用户名或学号已存在");
         }
         User user = new User();
@@ -35,7 +38,7 @@ public class AuthService {
         user.setStudentId(studentId);
         user.setPhone(body.getOrDefault("phone", ""));
         user.setEmail(body.getOrDefault("email", ""));
-        userRepository.save(user);
+        userMapper.insert(user);
 
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("code", 200);
@@ -46,11 +49,11 @@ public class AuthService {
     public Map<String, Object> login(Map<String, String> body) {
         String username = body.get("username");
         String password = body.get("password");
-        Optional<User> opt = userRepository.findByUsername(username);
-        if (opt.isEmpty() || !encoder.matches(password, opt.get().getPassword())) {
+
+        User user = userMapper.selectOne(new LambdaQueryWrapper<User>().eq(User::getUsername, username));
+        if (user == null || !encoder.matches(password, user.getPassword())) {
             return Map.of("code", 400, "message", "用户名或密码错误");
         }
-        User user = opt.get();
         if ("banned".equals(user.getStatus())) {
             return Map.of("code", 403, "message", "账号已被封禁");
         }
@@ -76,7 +79,7 @@ public class AuthService {
     }
 
     public Map<String, Object> getProfile(Long userId) {
-        User user = userRepository.findById(userId).orElse(null);
+        User user = userMapper.selectById(userId);
         if (user == null) return Map.of("code", 404, "message", "用户不存在");
 
         Map<String, Object> data = new LinkedHashMap<>();
@@ -98,11 +101,11 @@ public class AuthService {
     }
 
     public Map<String, Object> updateProfile(Long userId, Map<String, String> body) {
-        User user = userRepository.findById(userId).orElse(null);
+        User user = userMapper.selectById(userId);
         if (user == null) return Map.of("code", 404, "message", "用户不存在");
         if (body.containsKey("phone")) user.setPhone(body.get("phone"));
         if (body.containsKey("email")) user.setEmail(body.get("email"));
-        userRepository.save(user);
+        userMapper.updateById(user);
         return Map.of("code", 200, "message", "更新成功");
     }
 }

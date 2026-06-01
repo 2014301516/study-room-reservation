@@ -1,28 +1,20 @@
 package com.studyroom.entity;
 
-import jakarta.persistence.*;
+import com.baomidou.mybatisplus.annotation.*;
 import java.time.LocalDateTime;
 
-@Entity
-@Table(name = "checkins")
+@TableName("checkins")
 public class Checkin {
-    @Id @GeneratedValue(strategy = GenerationType.IDENTITY)
+    @TableId(type = IdType.AUTO)
     private Long id;
-
-    @Column(name = "reservation_id")
     private Long reservationId;
-
-    @Column(name = "user_id")
     private Long userId;
-
-    @Column(name = "seat_id")
     private Long seatId;
-
     private LocalDateTime checkinTime;
     private LocalDateTime checkoutTime;
-    private LocalDateTime createdAt;
 
-    @PrePersist protected void onCreate() { createdAt = LocalDateTime.now(); }
+    @TableField(fill = FieldFill.INSERT)
+    private LocalDateTime createdAt;
 
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }
@@ -37,4 +29,5 @@ public class Checkin {
     public LocalDateTime getCheckoutTime() { return checkoutTime; }
     public void setCheckoutTime(LocalDateTime checkoutTime) { this.checkoutTime = checkoutTime; }
     public LocalDateTime getCreatedAt() { return createdAt; }
+    public void setCreatedAt(LocalDateTime createdAt) { this.createdAt = createdAt; }
 }

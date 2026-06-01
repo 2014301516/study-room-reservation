@@ -1,50 +1,27 @@
 package com.studyroom.entity;
 
-import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
-import jakarta.persistence.*;
+import com.baomidou.mybatisplus.annotation.*;
 import java.time.LocalDateTime;
 
-@Entity
-@Table(name = "users")
-@JsonIgnoreProperties({"hibernateLazyInitializer", "handler"})
+@TableName("users")
 public class User {
-    @Id @GeneratedValue(strategy = GenerationType.IDENTITY)
+    @TableId(type = IdType.AUTO)
     private Long id;
-
-    @Column(unique = true, nullable = false, length = 50)
     private String username;
-
-    @Column(nullable = false, length = 255)
     private String password;
-
-    @Column(nullable = false, length = 50)
     private String realName;
-
-    @Column(unique = true, nullable = false, length = 20)
     private String studentId;
-
-    @Column(length = 20)
     private String phone;
-
-    @Column(length = 100)
     private String email;
-
-    @Column(length = 10)
     private String role = "student"; // admin, student
-
-    @Column(length = 255)
     private String avatar = "";
-
-    @Column(length = 10)
     private String status = "active"; // active, banned
 
+    @TableField(fill = FieldFill.INSERT)
     private LocalDateTime createdAt;
-    private LocalDateTime updatedAt;
 
-    @PrePersist
-    protected void onCreate() { createdAt = LocalDateTime.now(); updatedAt = LocalDateTime.now(); }
-    @PreUpdate
-    protected void onUpdate() { updatedAt = LocalDateTime.now(); }
+    @TableField(fill = FieldFill.INSERT_UPDATE)
+    private LocalDateTime updatedAt;
 
     // Getters and Setters
     public Long getId() { return id; }

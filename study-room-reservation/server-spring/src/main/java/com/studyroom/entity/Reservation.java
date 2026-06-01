@@ -1,48 +1,44 @@
 package com.studyroom.entity;
 
-import jakarta.persistence.*;
+import com.baomidou.mybatisplus.annotation.*;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 
-@Entity
-@Table(name = "reservations")
+@TableName("reservations")
 public class Reservation {
-    @Id @GeneratedValue(strategy = GenerationType.IDENTITY)
+    @TableId(type = IdType.AUTO)
     private Long id;
-
-    @Column(name = "user_id")
     private Long userId;
-
-    @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "user_id", insertable = false, updatable = false)
-    private User user;
-
-    @Column(name = "seat_id")
     private Long seatId;
-
-    @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "seat_id", insertable = false, updatable = false)
-    private Seat seat;
-
     private LocalDate date;
     private String startTime;
     private String endTime;
     private String status = "reserved";
     private String qrcodeToken;
+
+    @TableField(fill = FieldFill.INSERT)
     private LocalDateTime createdAt;
+
+    @TableField(fill = FieldFill.INSERT_UPDATE)
     private LocalDateTime updatedAt;
 
-    @PrePersist protected void onCreate() { createdAt = LocalDateTime.now(); updatedAt = LocalDateTime.now(); }
-    @PreUpdate protected void onUpdate() { updatedAt = LocalDateTime.now(); }
+    // 关联对象（非数据库字段，Service 层手动填充）
+    @TableField(exist = false)
+    private User user;
+
+    @TableField(exist = false)
+    private Seat seat;
 
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }
     public Long getUserId() { return userId; }
     public void setUserId(Long userId) { this.userId = userId; }
     public User getUser() { return user; }
+    public void setUser(User user) { this.user = user; }
     public Long getSeatId() { return seatId; }
     public void setSeatId(Long seatId) { this.seatId = seatId; }
     public Seat getSeat() { return seat; }
+    public void setSeat(Seat seat) { this.seat = seat; }
     public LocalDate getDate() { return date; }
     public void setDate(LocalDate date) { this.date = date; }
     public String getStartTime() { return startTime; }

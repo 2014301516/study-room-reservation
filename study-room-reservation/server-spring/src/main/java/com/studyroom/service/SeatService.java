@@ -1,28 +1,37 @@
 package com.studyroom.service;
 
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.studyroom.entity.Area;
 import com.studyroom.entity.Seat;
-import com.studyroom.repository.*;
+import com.studyroom.mapper.AreaMapper;
+import com.studyroom.mapper.SeatMapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+
 import java.util.*;
 
 @Service
 @RequiredArgsConstructor
 public class SeatService {
 
-    private final AreaRepository areaRepository;
-    private final SeatRepository seatRepository;
+    private final AreaMapper areaMapper;
+    private final SeatMapper seatMapper;
 
     public List<Area> getActiveAreas() {
-        return areaRepository.findByStatusOrderBySortOrderAsc("active");
+        return areaMapper.selectList(
+                new LambdaQueryWrapper<Area>()
+                        .eq(Area::getStatus, "active")
+                        .orderByAsc(Area::getSortOrder));
     }
 
     public Map<String, Object> getAreaWithSeats(Long areaId) {
-        Area area = areaRepository.findById(areaId).orElse(null);
+        Area area = areaMapper.selectById(areaId);
         if (area == null) return null;
 
-        List<Seat> seats = seatRepository.findByAreaIdOrderByRowNumAscColNumAsc(areaId);
+        List<Seat> seats = seatMapper.selectList(
+                new LambdaQueryWrapper<Seat>()
+                        .eq(Seat::getAreaId, areaId)
+                        .orderByAsc(Seat::getRowNum, Seat::getColNum));
 
         Map<String, Long> stats = new LinkedHashMap<>();
         stats.put("total", (long) seats.size());
@@ -40,26 +49,41 @@ public class SeatService {
     }
 
     public Seat getSeatById(Long id) {
-        return seatRepository.findById(id).orElse(null);
+        return seatMapper.selectById(id);
     }
 
     public Map<String, Object> getOverview() {
-        long total = seatRepository.count();
-        List<Object[]> byStatus = seatRepository.countByStatus();
-        List<Area> areas = areaRepository.findByStatusOrderBySortOrderAsc("active");
+        long total = seatMapper.selectCount(null);
+
+        List<Object[]> byStatus = seatMapper.countByStatus();
+        List<Area> areas = areaMapper.selectList(
+                new LambdaQueryWrapper<Area>().eq(Area::getStatus, "active").orderByAsc(Area::getSortOrder));
 
         Map<String, Long> statusMap = new LinkedHashMap<>();
         for (Object[] row : byStatus) {
-            statusMap.put((String) row[0], (Long) row[1]);
+            statusMap.put((String) row[0], ((Number) row[1]).longValue());
+        }
+
+        // 统计已使用座位数量
+        List<String> usedStatuses = Arrays.asList("reserved", "occupied", "temp_leave");
+        long usedCount = 0;
+        for (Map.Entry<String, Long> e : statusMap.entrySet()) {
+            if (usedStatuses.contains(e.getKey())) usedCount += e.getValue();
         }
 
         List<Map<String, Object>> byArea = new ArrayList<>();
         for (Area area : areas) {
+            long areaTotal = seatMapper.selectCount(
+                    new LambdaQueryWrapper<Seat>().eq(Seat::getAreaId, area.getId()));
             Map<String, Object> m = new LinkedHashMap<>();
             m.put("name", area.getName());
             m.put("building", area.getBuilding());
             m.put("floor", area.getFloor());
-            m.put("total", seatRepository.countByAreaId(area.getId()));
+            m.put("total", areaTotal);
+            m.put("used", seatMapper.selectCount(
+                    new LambdaQueryWrapper<Seat>()
+                            .eq(Seat::getAreaId, area.getId())
+                            .in(Seat::getCurrentStatus, usedStatuses)));
             byArea.add(m);
         }
 

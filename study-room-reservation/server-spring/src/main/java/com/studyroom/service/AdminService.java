@@ -1,11 +1,12 @@
 package com.studyroom.service;
 
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.studyroom.entity.*;
-import com.studyroom.repository.*;
+import com.studyroom.mapper.*;
 import com.studyroom.websocket.SeatBroadcastService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -16,12 +17,12 @@ import java.util.*;
 @RequiredArgsConstructor
 public class AdminService {
 
-    private final ReservationRepository reservationRepository;
-    private final SeatRepository seatRepository;
-    private final UserRepository userRepository;
-    private final ViolationRepository violationRepository;
-    private final NoticeRepository noticeRepository;
-    private final AreaRepository areaRepository;
+    private final ReservationMapper reservationMapper;
+    private final SeatMapper seatMapper;
+    private final UserMapper userMapper;
+    private final ViolationMapper violationMapper;
+    private final NoticeMapper noticeMapper;
+    private final AreaMapper areaMapper;
     private final SeatBroadcastService broadcastService;
 
     @Value("${study-room.max-violations:3}")
@@ -34,56 +35,66 @@ public class AdminService {
         LocalDate weekAgo = today.minusDays(6);
 
         // 今日统计
-        long totalReservations = reservationRepository.countByDate(today);
-        long activeUsers = reservationRepository.countByDateAndStatusIn(today,
-                List.of("checked_in", "using", "temp_leave"));
-        long noShows = reservationRepository.countByDateAndStatus(today, "absent");
+        long totalReservations = reservationMapper.selectCount(
+                new LambdaQueryWrapper<Reservation>().eq(Reservation::getDate, today));
+        long activeUsers = reservationMapper.selectCount(
+                new LambdaQueryWrapper<Reservation>()
+                        .eq(Reservation::getDate, today)
+                        .in(Reservation::getStatus, List.of("checked_in", "using", "temp_leave")));
+        long noShows = reservationMapper.selectCount(
+                new LambdaQueryWrapper<Reservation>()
+                        .eq(Reservation::getDate, today)
+                        .eq(Reservation::getStatus, "absent"));
 
         // 利用率
-        long totalSeats = seatRepository.count();
-        long usedSeats = seatRepository.countUsed();
+        long totalSeats = seatMapper.selectCount(null);
+        List<String> usedStatuses = List.of("reserved", "occupied", "temp_leave");
+        long usedSeats = seatMapper.selectCount(
+                new LambdaQueryWrapper<Seat>().in(Seat::getCurrentStatus, usedStatuses));
         long utilization = totalSeats > 0 ? Math.round(usedSeats * 100.0 / totalSeats) : 0;
 
         // 区域使用
-        List<Area> areas = areaRepository.findByStatusOrderBySortOrderAsc("active");
+        List<Area> areas = areaMapper.selectList(
+                new LambdaQueryWrapper<Area>().eq(Area::getStatus, "active").orderByAsc(Area::getSortOrder));
         List<Map<String, Object>> areaUsage = new ArrayList<>();
         for (Area a : areas) {
+            long areaTotal = seatMapper.selectCount(new LambdaQueryWrapper<Seat>().eq(Seat::getAreaId, a.getId()));
+            long areaUsed = seatMapper.selectCount(new LambdaQueryWrapper<Seat>()
+                    .eq(Seat::getAreaId, a.getId())
+                    .in(Seat::getCurrentStatus, usedStatuses));
             Map<String, Object> m = new LinkedHashMap<>();
             m.put("name", a.getName());
             m.put("building", a.getBuilding());
             m.put("floor", a.getFloor());
-            m.put("total", seatRepository.countByAreaId(a.getId()));
-            // simplified: count used in this area
-            long used = seatRepository.findByAreaIdOrderByRowNumAscColNumAsc(a.getId())
-                    .stream().filter(s -> List.of("reserved", "occupied", "temp_leave")
-                            .contains(s.getCurrentStatus())).count();
-            m.put("used", used);
+            m.put("total", areaTotal);
+            m.put("used", areaUsed);
             areaUsage.add(m);
         }
 
         // 趋势
-        List<Object[]> trendRaw = reservationRepository.countByDateAfter(weekAgo);
+        List<Object[]> trendRaw = reservationMapper.countByDateAfter(weekAgo);
         List<Map<String, Object>> trend = new ArrayList<>();
         for (Object[] row : trendRaw) {
             Map<String, Object> m = new LinkedHashMap<>();
             m.put("date", row[0].toString());
-            m.put("cnt", row[1]);
+            m.put("cnt", ((Number) row[1]).longValue());
             trend.add(m);
         }
 
         // 时段分布
-        List<Object[]> hourlyRaw = reservationRepository.countByDateGroupByStartTime(today);
+        List<Object[]> hourlyRaw = reservationMapper.countByDateGroupByStartTime(today);
         List<Map<String, Object>> hourly = new ArrayList<>();
         for (Object[] row : hourlyRaw) {
             Map<String, Object> m = new LinkedHashMap<>();
             m.put("start_time", row[0].toString());
-            m.put("cnt", row[1]);
+            m.put("cnt", ((Number) row[1]).longValue());
             hourly.add(m);
         }
 
         // 违规
-        long totalViolations = violationRepository.count();
-        long activeViolations = violationRepository.countByStatus("active");
+        long totalViolations = violationMapper.selectCount(null);
+        long activeViolations = violationMapper.selectCount(
+                new LambdaQueryWrapper<Violation>().eq(Violation::getStatus, "active"));
 
         Map<String, Object> todayStats = new LinkedHashMap<>();
         todayStats.put("total_reservations", totalReservations);
@@ -107,9 +118,11 @@ public class AdminService {
     // ====== 座位管理 ======
     public List<Seat> getAllSeats(Long areaId) {
         if (areaId != null) {
-            return seatRepository.findByAreaIdOrderByRowNumAscColNumAsc(areaId);
+            return seatMapper.selectList(new LambdaQueryWrapper<Seat>()
+                    .eq(Seat::getAreaId, areaId)
+                    .orderByAsc(Seat::getRowNum, Seat::getColNum));
         }
-        return seatRepository.findAll();
+        return seatMapper.selectList(null);
     }
 
     public Seat addSeat(Map<String, Object> body) {
@@ -121,11 +134,12 @@ public class AdminService {
         seat.setHasOutlet(body.containsKey("has_outlet") ? Integer.valueOf(body.get("has_outlet").toString()) : 0);
         seat.setHasLamp(body.containsKey("has_lamp") ? Integer.valueOf(body.get("has_lamp").toString()) : 0);
         seat.setIsWindow(body.containsKey("is_window") ? Integer.valueOf(body.get("is_window").toString()) : 0);
-        return seatRepository.save(seat);
+        seatMapper.insert(seat);
+        return seat;
     }
 
     public Seat updateSeat(Long id, Map<String, Object> body) {
-        Seat seat = seatRepository.findById(id).orElse(null);
+        Seat seat = seatMapper.selectById(id);
         if (seat == null) return null;
         if (body.containsKey("seat_number")) seat.setSeatNumber(body.get("seat_number").toString());
         if (body.containsKey("row_num")) seat.setRowNum(Integer.valueOf(body.get("row_num").toString()));
@@ -137,35 +151,47 @@ public class AdminService {
             String oldStatus = seat.getCurrentStatus();
             String newStatus = body.get("current_status").toString();
             seat.setCurrentStatus(newStatus);
-            Seat saved = seatRepository.save(seat);
-            broadcastService.broadcastSeatChange(saved.getAreaId(), saved.getId(), saved.getSeatNumber(), oldStatus, newStatus);
-            return saved;
+            seatMapper.updateById(seat);
+            broadcastService.broadcastSeatChange(seat.getAreaId(), seat.getId(), seat.getSeatNumber(), oldStatus, newStatus);
+            return seat;
         }
-        return seatRepository.save(seat);
+        seatMapper.updateById(seat);
+        return seat;
     }
 
     public void deleteSeat(Long id) {
-        seatRepository.deleteById(id);
+        seatMapper.deleteById(id);
     }
 
     // ====== 预约管理 ======
     public Map<String, Object> getReservations(String status, LocalDate date, int page, int pageSize) {
-        org.springframework.data.domain.Page<Reservation> pageResult =
-                reservationRepository.findByStatusAndDate(status, date, PageRequest.of(page - 1, pageSize));
+        LambdaQueryWrapper<Reservation> wrapper = new LambdaQueryWrapper<>();
+        if (status != null && !status.isEmpty()) {
+            wrapper.eq(Reservation::getStatus, status);
+        }
+        if (date != null) {
+            wrapper.eq(Reservation::getDate, date);
+        }
+        wrapper.orderByDesc(Reservation::getDate).orderByDesc(Reservation::getStartTime);
+
+        Page<Reservation> pageResult = reservationMapper.selectPage(new Page<>(page, pageSize), wrapper);
 
         List<Map<String, Object>> list = new ArrayList<>();
-        for (Reservation r : pageResult.getContent()) {
-            Seat seat = seatRepository.findById(r.getSeatId()).orElse(null);
-            User user = userRepository.findById(r.getUserId()).orElse(null);
+        for (Reservation r : pageResult.getRecords()) {
+            Seat seat = seatMapper.selectById(r.getSeatId());
+            User user = userMapper.selectById(r.getUserId());
             Map<String, Object> m = new LinkedHashMap<>();
             m.put("id", r.getId());
             m.put("real_name", user != null ? user.getRealName() : "");
             m.put("student_id", user != null ? user.getStudentId() : "");
             m.put("seat_number", seat != null ? seat.getSeatNumber() : "");
-            if (seat != null && seat.getArea() != null) {
-                m.put("area_name", seat.getArea().getName());
-                m.put("building", seat.getArea().getBuilding());
-                m.put("floor", seat.getArea().getFloor());
+            if (seat != null && seat.getAreaId() != null) {
+                Area area = areaMapper.selectById(seat.getAreaId());
+                if (area != null) {
+                    m.put("area_name", area.getName());
+                    m.put("building", area.getBuilding());
+                    m.put("floor", area.getFloor());
+                }
             }
             m.put("date", r.getDate());
             m.put("start_time", r.getStartTime());
@@ -176,7 +202,7 @@ public class AdminService {
         }
         Map<String, Object> data = new LinkedHashMap<>();
         data.put("list", list);
-        data.put("total", pageResult.getTotalElements());
+        data.put("total", pageResult.getTotal());
         data.put("page", page);
         data.put("pageSize", pageSize);
         return data;
@@ -184,15 +210,16 @@ public class AdminService {
 
     // ====== 用户管理 ======
     public Map<String, Object> getUsers(String role, int page, int pageSize) {
-        org.springframework.data.domain.Page<User> pageResult;
+        LambdaQueryWrapper<User> wrapper = new LambdaQueryWrapper<>();
         if (role != null && !role.isEmpty()) {
-            pageResult = userRepository.findByRole(role, PageRequest.of(page - 1, pageSize));
-        } else {
-            pageResult = userRepository.findAllByOrderByCreatedAtDesc(PageRequest.of(page - 1, pageSize));
+            wrapper.eq(User::getRole, role);
         }
+        wrapper.orderByDesc(User::getCreatedAt);
+
+        Page<User> pageResult = userMapper.selectPage(new Page<>(page, pageSize), wrapper);
 
         List<Map<String, Object>> list = new ArrayList<>();
-        for (User u : pageResult.getContent()) {
+        for (User u : pageResult.getRecords()) {
             Map<String, Object> m = new LinkedHashMap<>();
             m.put("id", u.getId());
             m.put("username", u.getUsername());
@@ -207,23 +234,23 @@ public class AdminService {
         }
         Map<String, Object> data = new LinkedHashMap<>();
         data.put("list", list);
-        data.put("total", pageResult.getTotalElements());
+        data.put("total", pageResult.getTotal());
         data.put("page", page);
         data.put("pageSize", pageSize);
         return data;
     }
 
     public Map<String, Object> updateUser(Long id, Map<String, String> body) {
-        User user = userRepository.findById(id).orElse(null);
+        User user = userMapper.selectById(id);
         if (user == null) return Map.of("code", 404, "message", "用户不存在");
         if (body.containsKey("status")) user.setStatus(body.get("status"));
-        userRepository.save(user);
+        userMapper.updateById(user);
         return Map.of("code", 200, "message", "更新成功");
     }
 
     // ====== 违规管理 ======
     public List<Violation> getViolations() {
-        return violationRepository.findAll();
+        return violationMapper.selectList(null);
     }
 
     @Transactional
@@ -237,30 +264,33 @@ public class AdminService {
         if (body.containsKey("penalty_end") && body.get("penalty_end") != null) {
             v.setPenaltyEnd(LocalDate.parse(body.get("penalty_end").toString()));
         }
-        violationRepository.save(v);
+        violationMapper.insert(v);
 
         // 自动封禁检查
-        long cnt = violationRepository.countByUserIdAndStatus(userId, "active");
+        long cnt = violationMapper.selectCount(
+                new LambdaQueryWrapper<Violation>().eq(Violation::getUserId, userId).eq(Violation::getStatus, "active"));
         if (cnt >= maxViolations) {
-            userRepository.findById(userId).ifPresent(u -> {
-                u.setStatus("banned");
-                userRepository.save(u);
-            });
+            User user = userMapper.selectById(userId);
+            if (user != null) {
+                user.setStatus("banned");
+                userMapper.updateById(user);
+            }
         }
         return Map.of("code", 200, "message", "违规记录已添加");
     }
 
     public Map<String, Object> updateViolation(Long id, Map<String, String> body) {
-        Violation v = violationRepository.findById(id).orElse(null);
+        Violation v = violationMapper.selectById(id);
         if (v == null) return Map.of("code", 404, "message", "违规不存在");
         if (body.containsKey("status")) v.setStatus(body.get("status"));
-        violationRepository.save(v);
+        violationMapper.updateById(v);
         return Map.of("code", 200, "message", "更新成功");
     }
 
     // ====== 公告管理 ======
     public List<Notice> getNotices() {
-        return noticeRepository.findAllByOrderByIsTopDescCreatedAtDesc();
+        return noticeMapper.selectList(
+                new LambdaQueryWrapper<Notice>().orderByDesc(Notice::getIsTop).orderByDesc(Notice::getCreatedAt));
     }
 
     public Notice addNotice(Map<String, Object> body) {
@@ -269,10 +299,11 @@ public class AdminService {
         n.setContent(body.getOrDefault("content", "").toString());
         n.setPublisher("管理员");
         n.setIsTop(body.containsKey("is_top") ? Integer.valueOf(body.get("is_top").toString()) : 0);
-        return noticeRepository.save(n);
+        noticeMapper.insert(n);
+        return n;
     }
 
     public void deleteNotice(Long id) {
-        noticeRepository.deleteById(id);
+        noticeMapper.deleteById(id);
     }
 }

@@ -1,10 +1,8 @@
 package com.studyroom.service;
 
-import com.studyroom.entity.Checkin;
-import com.studyroom.entity.Reservation;
-import com.studyroom.entity.Seat;
-import com.studyroom.entity.Violation;
-import com.studyroom.repository.*;
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.studyroom.entity.*;
+import com.studyroom.mapper.*;
 import com.studyroom.websocket.SeatBroadcastService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
@@ -21,10 +19,10 @@ import java.util.Map;
 @RequiredArgsConstructor
 public class CheckinService {
 
-    private final ReservationRepository reservationRepository;
-    private final SeatRepository seatRepository;
-    private final CheckinRepository checkinRepository;
-    private final ViolationRepository violationRepository;
+    private final ReservationMapper reservationMapper;
+    private final SeatMapper seatMapper;
+    private final CheckinMapper checkinMapper;
+    private final ViolationMapper violationMapper;
     private final SeatBroadcastService broadcastService;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
@@ -49,6 +47,7 @@ public class CheckinService {
         Long reservationId;
         String token;
         try {
+            @SuppressWarnings("unchecked")
             Map<String, Object> qrData = objectMapper.readValue(qrToken, Map.class);
             reservationId = Long.valueOf(qrData.get("reservation_id").toString());
             token = (String) qrData.get("token");
@@ -59,7 +58,7 @@ public class CheckinService {
         }
 
         // 查找预约
-        Reservation r = reservationRepository.findById(reservationId).orElse(null);
+        Reservation r = reservationMapper.selectById(reservationId);
         if (r == null || !token.equals(r.getQrcodeToken())) {
             result.put("code", 404);
             result.put("message", "无效的二维码");
@@ -94,14 +93,14 @@ public class CheckinService {
 
         // 更新预约状态
         r.setStatus("checked_in");
-        reservationRepository.save(r);
+        reservationMapper.updateById(r);
 
         // 更新座位状态
-        Seat seat = seatRepository.findById(r.getSeatId()).orElse(null);
+        Seat seat = seatMapper.selectById(r.getSeatId());
         if (seat != null) {
             String oldStatus = seat.getCurrentStatus();
             seat.setCurrentStatus("occupied");
-            seatRepository.save(seat);
+            seatMapper.updateById(seat);
             broadcastService.broadcastSeatChange(
                     seat.getAreaId(), seat.getId(), seat.getSeatNumber(), oldStatus, "occupied");
         }
@@ -112,7 +111,7 @@ public class CheckinService {
         checkin.setUserId(r.getUserId());
         checkin.setSeatId(r.getSeatId());
         checkin.setCheckinTime(LocalDateTime.now());
-        checkinRepository.save(checkin);
+        checkinMapper.insert(checkin);
 
         // 迟到记录违规
         if (isLate) {
@@ -121,7 +120,7 @@ public class CheckinService {
             v.setReservationId(r.getId());
             v.setType("late");
             v.setDescription(String.format("预约 %s %s 迟到签到", r.getDate(), r.getStartTime()));
-            violationRepository.save(v);
+            violationMapper.insert(v);
         }
 
         Map<String, Object> data = new LinkedHashMap<>();

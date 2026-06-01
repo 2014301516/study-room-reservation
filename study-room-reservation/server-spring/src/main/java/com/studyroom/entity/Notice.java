@@ -1,21 +1,19 @@
 package com.studyroom.entity;
 
-import jakarta.persistence.*;
+import com.baomidou.mybatisplus.annotation.*;
 import java.time.LocalDateTime;
 
-@Entity
-@Table(name = "notices")
+@TableName("notices")
 public class Notice {
-    @Id @GeneratedValue(strategy = GenerationType.IDENTITY)
+    @TableId(type = IdType.AUTO)
     private Long id;
     private String title;
-    @Column(columnDefinition = "TEXT")
     private String content;
     private String publisher;
     private Integer isTop = 0;
-    private LocalDateTime createdAt;
 
-    @PrePersist protected void onCreate() { createdAt = LocalDateTime.now(); }
+    @TableField(fill = FieldFill.INSERT)
+    private LocalDateTime createdAt;
 
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }
@@ -28,4 +26,5 @@ public class Notice {
     public Integer getIsTop() { return isTop; }
     public void setIsTop(Integer isTop) { this.isTop = isTop; }
     public LocalDateTime getCreatedAt() { return createdAt; }
+    public void setCreatedAt(LocalDateTime createdAt) { this.createdAt = createdAt; }
 }
