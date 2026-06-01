@@ -14,6 +14,11 @@ export const useUserStore = defineStore('user', () => {
     if (res.code === 200) {
       token.value = res.data.token
       user.value = res.data.user
+      // 同步写入 localStorage，确保拦截器能立即读到
+      localStorage.setItem('study-room-user', JSON.stringify({
+        token: res.data.token,
+        user: res.data.user
+      }))
       return { ok: true }
     }
     return { ok: false, message: res.message }
