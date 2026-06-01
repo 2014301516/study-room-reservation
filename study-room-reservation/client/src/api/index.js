@@ -9,18 +9,16 @@ const api = axios.create({
 // 请求拦截器：自动注入 token
 api.interceptors.request.use(
   (config) => {
-    // 如果请求头还没有 Authorization，从 store 中取
-    if (!config.headers.Authorization) {
-      try {
-        const raw = localStorage.getItem('study-room-user')
-        if (raw) {
-          const stored = JSON.parse(raw)
-          if (stored.token) {
-            config.headers.Authorization = `Bearer ${stored.token}`
-          }
+    // 从 localStorage 直接读取 token（最可靠的方式）
+    try {
+      const raw = localStorage.getItem('study-room-user')
+      if (raw) {
+        const stored = JSON.parse(raw)
+        if (stored.token) {
+          config.headers.Authorization = `Bearer ${stored.token}`
         }
-      } catch {}
-    }
+      }
+    } catch {}
     return config
   },
   (err) => Promise.reject(err)

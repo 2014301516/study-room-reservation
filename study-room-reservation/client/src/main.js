@@ -16,11 +16,6 @@ app.use(pinia)
 app.use(router)
 app.use(ElementPlus, { size: 'default' })
 
-// 恢复登录状态：从 localStorage 读取 token 并设置 axios 请求头
-import { useUserStore } from '@/stores/user'
-const userStore = useUserStore()
-userStore.restoreAuth()
-
 // 全局注册 Element Plus 图标
 for (const [key, component] of Object.entries(ElementPlusIconsVue)) {
   app.component(key, component)
