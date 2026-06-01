@@ -1,0 +1,38 @@
+server:
+  port: 3000
+
+spring:
+  datasource:
+    url: jdbc:mysql://localhost:3306/study_room?useUnicode=true&characterEncoding=UTF-8&serverTimezone=Asia/Shanghai
+    username: root
+    password: "123"
+    driver-class-name: com.mysql.cj.jdbc.Driver
+
+  jpa:
+    hibernate:
+      ddl-auto: none
+      naming:
+        physical-strategy: org.hibernate.boot.model.naming.CamelCaseToUnderscoresNamingStrategy
+    show-sql: false
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.MySQLDialect
+        format_sql: true
+
+  jackson:
+    serialization:
+      fail-on-empty-beans: false
+
+# JWT 配置
+jwt:
+  secret: study_room_jwt_secret_2024_key_study_room_jwt_secret_2024_key
+  expiration: 604800000  # 7天
+
+# 自习室配置
+study-room:
+  open-time: "08:00"
+  close-time: "22:00"
+  temp-leave-minutes: 15      # 暂离保留时长（分钟）
+  checkin-grace-minutes: 30   # 签到宽限期（分钟）
+  max-violations: 3           # 累计违规上限
+  ban-days: 7                 # 封禁天数
