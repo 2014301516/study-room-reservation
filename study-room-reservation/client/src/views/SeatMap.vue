@@ -204,13 +204,20 @@ async function switchArea(id) {
   areaTab.value = id
   if (id === 'all') {
     mapLoading.value = true
+    // 汇总所有区域统计数据
+    const aggStats = { total: 0, available: 0, reserved: 0, occupied: 0, temp_leave: 0, maintenance: 0 }
     for (const area of areas.value) {
       const res = await api.get(`/seats/area/${area.id}`)
       if (res.code === 200) {
         area.seats = res.data.seats
         area.available = res.data.stats.available
+        // 累加统计
+        for (const key of Object.keys(aggStats)) {
+          aggStats[key] += (res.data.stats[key] || 0)
+        }
       }
     }
+    Object.assign(seatStats, aggStats)
     mapLoading.value = false
     return
   }
