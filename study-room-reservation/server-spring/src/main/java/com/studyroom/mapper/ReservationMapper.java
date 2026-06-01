@@ -8,6 +8,7 @@ import org.apache.ibatis.annotations.Select;
 
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Map;
 
 @Mapper
 public interface ReservationMapper extends BaseMapper<Reservation> {
@@ -24,12 +25,12 @@ public interface ReservationMapper extends BaseMapper<Reservation> {
     /**
      * 按日期之后的预约数分组
      */
-    @Select("SELECT date, COUNT(*) FROM reservations WHERE date >= #{date} GROUP BY date ORDER BY date")
-    List<Object[]> countByDateAfter(@Param("date") LocalDate date);
+    @Select("SELECT date, COUNT(*) AS cnt FROM reservations WHERE date >= #{date} GROUP BY date ORDER BY date")
+    List<Map<String, Object>> countByDateAfter(@Param("date") LocalDate date);
 
     /**
      * 按日期和时段分组统计
      */
-    @Select("SELECT start_time, COUNT(*) FROM reservations WHERE date = #{date} GROUP BY start_time ORDER BY start_time")
-    List<Object[]> countByDateGroupByStartTime(@Param("date") LocalDate date);
+    @Select("SELECT start_time, COUNT(*) AS cnt FROM reservations WHERE date = #{date} GROUP BY start_time ORDER BY start_time")
+    List<Map<String, Object>> countByDateGroupByStartTime(@Param("date") LocalDate date);
 }

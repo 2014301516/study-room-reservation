@@ -72,22 +72,22 @@ public class AdminService {
         }
 
         // 趋势
-        List<Object[]> trendRaw = reservationMapper.countByDateAfter(weekAgo);
+        List<Map<String, Object>> trendRaw = reservationMapper.countByDateAfter(weekAgo);
         List<Map<String, Object>> trend = new ArrayList<>();
-        for (Object[] row : trendRaw) {
+        for (Map<String, Object> row : trendRaw) {
             Map<String, Object> m = new LinkedHashMap<>();
-            m.put("date", row[0].toString());
-            m.put("cnt", ((Number) row[1]).longValue());
+            m.put("date", row.get("date").toString());
+            m.put("cnt", ((Number) row.get("cnt")).longValue());
             trend.add(m);
         }
 
         // 时段分布
-        List<Object[]> hourlyRaw = reservationMapper.countByDateGroupByStartTime(today);
+        List<Map<String, Object>> hourlyRaw = reservationMapper.countByDateGroupByStartTime(today);
         List<Map<String, Object>> hourly = new ArrayList<>();
-        for (Object[] row : hourlyRaw) {
+        for (Map<String, Object> row : hourlyRaw) {
             Map<String, Object> m = new LinkedHashMap<>();
-            m.put("start_time", row[0].toString());
-            m.put("cnt", ((Number) row[1]).longValue());
+            m.put("start_time", row.get("start_time").toString());
+            m.put("cnt", ((Number) row.get("cnt")).longValue());
             hourly.add(m);
         }
 

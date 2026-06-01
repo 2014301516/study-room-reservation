@@ -55,13 +55,13 @@ public class SeatService {
     public Map<String, Object> getOverview() {
         long total = seatMapper.selectCount(null);
 
-        List<Object[]> byStatus = seatMapper.countByStatus();
+        List<Map<String, Object>> byStatus = seatMapper.countByStatus();
         List<Area> areas = areaMapper.selectList(
                 new LambdaQueryWrapper<Area>().eq(Area::getStatus, "active").orderByAsc(Area::getSortOrder));
 
         Map<String, Long> statusMap = new LinkedHashMap<>();
-        for (Object[] row : byStatus) {
-            statusMap.put((String) row[0], ((Number) row[1]).longValue());
+        for (Map<String, Object> row : byStatus) {
+            statusMap.put((String) row.get("status"), ((Number) row.get("cnt")).longValue());
         }
 
         // 统计已使用座位数量
