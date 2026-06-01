@@ -10,6 +10,8 @@ export const useUserStore = defineStore('user', () => {
   const isAdmin = computed(() => user.value?.role === 'admin')
 
   async function login(username, password) {
+    // 登录时不带旧 token，避免 Spring Security 拦截
+    delete api.defaults.headers.common['Authorization']
     const res = await api.post('/auth/login', { username, password })
     if (res.code === 200) {
       token.value = res.data.token
@@ -21,6 +23,7 @@ export const useUserStore = defineStore('user', () => {
   }
 
   async function register(data) {
+    delete api.defaults.headers.common['Authorization']
     const res = await api.post('/auth/register', data)
     return { ok: res.code === 200, message: res.message }
   }
